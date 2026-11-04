@@ -164,8 +164,84 @@ final class Canvas: NSView {
     }
 }
 
-final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
+/// Gray backdrop behind the screenshot, like Preview: pads it and gives it a soft shadow.
+final class Stage: NSView {
+    static let pad = 32.0
+    let canvas: Canvas
+    init(_ canvas: Canvas) { self.canvas = canvas; super.init(frame: .zero); addSubview(canvas) }
+    required init?(coder: NSCoder) { nil }
+    override var isFlipped: Bool { true }   // tall pages start at the top
+
+    func fit() {
+        canvas.setFrameOrigin(NSPoint(x: Stage.pad, y: Stage.pad))
+        setFrameSize(NSSize(width: canvas.frame.width + 2 * Stage.pad, height: canvas.frame.height + 2 * Stage.pad))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
+        let shadow = NSShadow()
+        shadow.shadowColor = .black.withAlphaComponent(0.25); shadow.shadowBlurRadius = 16; shadow.shadowOffset = NSSize(width: 0, height: -3)
+        shadow.set()
+        NSColor.white.setFill(); canvas.frame.fill()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+}
+
+/// Keeps a screenshot smaller than the window centred instead of stuck in a corner.
+final class CenteringClipView: NSClipView {
+    override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
+        var r = super.constrainBoundsRect(proposed)
+        guard let doc = documentView?.frame else { return r }
+        if r.width > doc.width { r.origin.x = (doc.width - r.width) / 2 }
+        if r.height > doc.height { r.origin.y = (doc.height - r.height) / 2 }
+        return r
+    }
+}
+
+extension NSToolbarItem.Identifier {
+    static let capture = Self("capture"), tools = Self("tools"), color = Self("color")
+    static let undo = Self("undo"), copy = Self("copy"), save = Self("save")
+}
+
+final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSToolbarDelegate {
     let canvas = Canvas()
+    lazy var stage = Stage(canvas)
+    let scroll = NSScrollView()
+    lazy var toolPicker: NSSegmentedControl = {
+        let tools = [("Pen", "pencil.tip"), ("Box", "rectangle"), ("Arrow", "arrow.up.right"),
+                     ("Text", "textformat"), ("Blur", "eye.slash"), ("Focus", "scope")]
+        let c = NSSegmentedControl(images: tools.map { NSImage(systemSymbolName: $0.1, accessibilityDescription: $0.0) ?? NSImage() },
+                                   trackingMode: .selectOne, target: self, action: #selector(pickTool))
+        for (i, t) in tools.enumerated() { c.setToolTip(t.0, forSegment: i) }
+        c.selectedSegment = 0
+        return c
+    }()
+    let colors: [(String, NSColor)] = [("Red", .systemRed), ("Orange", .systemOrange), ("Yellow", .systemYellow),
+                                        ("Green", .systemGreen), ("Blue", .systemBlue), ("Purple", .systemPurple),
+                                        ("Black", .black), ("White", .white)]
+    lazy var colorPicker: NSPopUpButton = {
+        let p = NSPopUpButton(frame: .zero, pullsDown: true)
+        p.bezelStyle = .texturedRounded   // .toolbar would tint the colour dot gray
+        p.addItem(withTitle: "")   // the button face: a dot in the current colour
+        p.lastItem?.image = swatch(canvas.color)
+        for (name, c) in colors {
+            p.addItem(withTitle: name)
+            p.lastItem?.image = swatch(c, size: 14); p.lastItem?.representedObject = c
+            p.lastItem?.target = self; p.lastItem?.action = #selector(pickColor)
+        }
+        p.toolTip = "Colour"
+        return p
+    }()
+
+    /// Colour dot for the toolbar and its menu, like Markup's colour picker.
+    func swatch(_ c: NSColor, size: Double = 16) -> NSImage {
+        NSImage(size: NSSize(width: size, height: size), flipped: false) { r in
+            let dot = NSBezierPath(ovalIn: r.insetBy(dx: 1, dy: 1))
+            c.setFill(); dot.fill()
+            NSColor.separatorColor.setStroke(); dot.lineWidth = 1; dot.stroke()
+            return true
+        }
+    }
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
                           styleMask: [.titled, .closable, .resizable, .miniaturizable],
                           backing: .buffered, defer: false)
@@ -204,29 +280,21 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         tray.menu?.delegate = self
         registerHotKey()
 
-        let tools = NSSegmentedControl(labels: ["Pen", "Box", "Arrow", "Text", "Blur", "Focus"], trackingMode: .selectOne,
-                                       target: self, action: #selector(pickTool))
-        tools.selectedSegment = 0
-        let well = NSColorWell(style: .minimal)
-        well.color = canvas.color; well.target = self; well.action = #selector(pickColor)
+        let toolbar = NSToolbar(identifier: "editor")
+        toolbar.delegate = self
+        toolbar.displayMode = .iconOnly
+        window.toolbar = toolbar
+        window.toolbarStyle = .unified
 
-        let bar = NSStackView(views: [
-            NSButton(title: "Capture", target: self, action: #selector(capture)),
-            tools, well,
-            NSButton(title: "Undo", target: self, action: #selector(undoMark)),
-            NSButton(title: "Copy", target: self, action: #selector(copyImage)),
-            NSButton(title: "Save…", target: self, action: #selector(saveImage)),
-        ])
-        let scroll = NSScrollView()
-        scroll.documentView = canvas
-        scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
-        let root = NSStackView(views: [bar, scroll])
-        root.orientation = .vertical
-        root.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        scroll.contentView = CenteringClipView()
+        scroll.documentView = stage
+        scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.autohidesScrollers = true
+        scroll.backgroundColor = .underPageBackgroundColor
+        scroll.allowsMagnification = true; scroll.minMagnification = 0.1; scroll.maxMagnification = 8   // pinch to zoom
 
-        window.contentView = root
+        window.contentView = scroll
         window.title = "YKShot"
-        window.contentMinSize = NSSize(width: 720, height: 200)
+        window.contentMinSize = NSSize(width: 760, height: 300)   // whole toolbar fits
         window.isReleasedWhenClosed = false   // closing the editor just hides it; app keeps living in the tray
         // Hidden main menu: no menu bar shows for a tray app, but it still routes ⌘Z/⌘C/⌘S/⌘Q.
         let main = NSMenu(), appItem = NSMenuItem()
@@ -234,24 +302,66 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.mainMenu = main
     }
 
-    private func menu() -> NSMenu {
+    private func captureMenu() -> NSMenu {
         let m = NSMenu()
-        let items: [(String, Selector, String)] = [
-            ("Capture", #selector(capture), "9"), ("Undo", #selector(undoMark), "z"),
-            ("Copy", #selector(copyImage), "c"), ("Save…", #selector(saveImage), "s"),
+        let items: [(String, Selector, NSEvent.ModifierFlags)] = [
+            ("Capture Area", #selector(capture), [.command]),
+            ("Capture Full Page", #selector(capturePage), [.command, .shift]),
+            ("Capture App, Blur the Rest", #selector(captureApp), [.command, .option]),
         ]
-        for (title, sel, key) in items {
+        for (title, sel, mods) in items {
+            let item = m.addItem(withTitle: title, action: sel, keyEquivalent: "9")
+            item.keyEquivalentModifierMask = mods
+            item.target = self
+        }
+        return m
+    }
+
+    private func menu() -> NSMenu {
+        let m = captureMenu()
+        m.addItem(.separator())
+        for (title, sel, key) in [("Undo", #selector(undoMark), "z"), ("Copy", #selector(copyImage), "c"), ("Save…", #selector(saveImage), "s")] {
             m.addItem(withTitle: title, action: sel, keyEquivalent: key).target = self
         }
-        let page = m.insertItem(withTitle: "Capture Full Page", action: #selector(capturePage), keyEquivalent: "9", at: 1)
-        page.keyEquivalentModifierMask = [.command, .shift]
-        page.target = self
-        let app = m.insertItem(withTitle: "Capture App (blur the rest)", action: #selector(captureApp), keyEquivalent: "9", at: 2)
-        app.keyEquivalentModifierMask = [.command, .option]
-        app.target = self
         m.addItem(.separator())
-        m.addItem(NSMenuItem(title: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        m.addItem(NSMenuItem(title: "Quit YKShot", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         return m
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.capture, .flexibleSpace, .tools, .color, .flexibleSpace, .undo, .copy, .save]
+    }
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarDefaultItemIdentifiers(toolbar) }
+
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar _: Bool) -> NSToolbarItem? {
+        func button(_ label: String, _ symbol: String, _ action: Selector) -> NSToolbarItem {
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = label; item.toolTip = label
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            item.target = self; item.action = action; item.isBordered = true
+            item.visibilityPriority = .user   // actions never fall into the » overflow menu
+            return item
+        }
+        func wrap(_ label: String, _ view: NSView) -> NSToolbarItem {
+            let item = NSToolbarItem(itemIdentifier: id)
+            item.label = label; item.view = view
+            return item
+        }
+        switch id {
+        case .capture:   // click = area capture, arrow = the other capture modes
+            let item = NSMenuToolbarItem(itemIdentifier: id)
+            item.label = "Capture"; item.toolTip = "Capture Area (⌘9)"
+            item.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Capture")
+            item.target = self; item.action = #selector(capture)
+            item.menu = captureMenu()
+            return item
+        case .tools: return wrap("Tools", toolPicker)
+        case .color: return wrap("Colour", colorPicker)
+        case .undo: return button("Undo (⌘Z)", "arrow.uturn.backward", #selector(undoMark))
+        case .copy: return button("Copy (⌘C)", "doc.on.doc", #selector(copyImage))
+        case .save: return button("Save (⌘S)", "square.and.arrow.down", #selector(saveImage))
+        default: return nil
+        }
     }
 
     // Global ⌘9 (region), ⇧⌘9 (full page) and ⌥⌘9 (app, rest blurred) via Carbon hotkeys: work from any app, need no Accessibility permission.
@@ -368,10 +478,18 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func show(_ img: NSImage?, reopen: Bool) {
         if let img {
             canvas.image = img
-            let screen = NSScreen.main?.visibleFrame.size ?? img.size
-            window.setContentSize(NSSize(width: min(img.size.width + 16, screen.width * 0.9),
-                                         height: min(img.size.height + 60, screen.height * 0.9)))
+            stage.fit()
+            let doc = stage.frame.size, screen = NSScreen.main?.visibleFrame.size ?? doc
+            window.setContentSize(NSSize(width: max(760, min(doc.width, screen.width * 0.85)),
+                                         height: max(300, min(doc.height, screen.height * 0.85))))
             window.center()
+            // Fit the shot in the window (tall full pages: fit the width), never enlarge it.
+            let view = scroll.contentSize
+            let fit = doc.height > doc.width * 2 ? view.width / doc.width : min(view.width / doc.width, view.height / doc.height)
+            scroll.magnification = min(1, fit)
+            stage.scroll(.zero)   // start at the top
+            let px = img.representations.first
+            window.subtitle = "\(px?.pixelsWide ?? 0) × \(px?.pixelsHigh ?? 0)"
         } else if !reopen {
             return   // cancelled with Esc and nothing was open: stay in the tray
         }
@@ -382,7 +500,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func pickTool(_ s: NSSegmentedControl) { canvas.tool = Tool(rawValue: s.selectedSegment) ?? .pen }
-    @objc func pickColor(_ w: NSColorWell) { canvas.color = w.color }
+    @objc func pickColor(_ m: NSMenuItem) {
+        guard let c = m.representedObject as? NSColor else { return }
+        canvas.color = c
+        colorPicker.item(at: 0)?.image = swatch(c)
+    }
     @objc func undoMark() { _ = canvas.marks.popLast() }
 
     private var fileName: String {
@@ -401,6 +523,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([item])
+        window.close()   // copied: done with this shot, get out of the way (app stays in the menu bar)
     }
 
     @objc func saveImage() {

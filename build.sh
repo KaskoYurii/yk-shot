@@ -3,6 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 NAME=YKShot
+VERSION=1.0.0
 APP=$NAME.app
 
 if [ "$1" = icon ] || [ ! -f AppIcon.icns ]; then
@@ -26,6 +27,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleIdentifier</key><string>local.ykshot</string>
   <key>CFBundleName</key><string>$NAME</string>
   <key>CFBundleExecutable</key><string>$NAME</string>
+  <key>CFBundleShortVersionString</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$VERSION</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
