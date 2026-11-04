@@ -1,0 +1,4 @@
+.DS_Store
+# Build output (./build.sh recreates both)
+YKShot.app/
+AppIcon.icns
