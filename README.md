@@ -28,7 +28,7 @@ All of these are also in the menu-bar menu. The shortcuts work from any app. The
 Requirements: macOS 14 or later, and Apple's Command Line Tools (`xcode-select --install`).
 
 ```sh
-git clone <this repo> ykshot && cd ykshot
+git clone https://github.com/KaskoYurii/yk-shot.git && cd yk-shot
 ./build.sh
 ```
 
