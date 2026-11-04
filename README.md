@@ -89,3 +89,7 @@ rm -rf /Applications/YKShot.app
 tccutil reset ScreenCapture local.ykshot
 tccutil reset Accessibility local.ykshot
 ```
+
+## License
+
+[MIT](LICENSE): free to use, change and share, including in commercial projects. Keep the copyright notice.
