@@ -3,7 +3,7 @@
 set -e
 cd "$(dirname "$0")"
 NAME=YKShot
-VERSION=1.0.0
+VERSION=1.0.1
 APP=$NAME.app
 
 if [ "$1" = icon ] || [ ! -f AppIcon.icns ]; then

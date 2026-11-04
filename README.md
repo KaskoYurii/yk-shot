@@ -10,7 +10,7 @@ Plain Swift and AppKit, with no Xcode project and no dependencies.
 - **Full-page capture**: scrolls the browser window you're using, takes a series of screenshots and joins them into one long image. It works in any browser and on sites you're logged into. Only the page is captured, not the browser's tabs or toolbar.
 - **App capture**: captures the whole screen, keeps the app in front sharp and blurs everything else (desktop, other apps' windows).
 - **Editor**: pen, box, arrow, text comments, Blur (hides what's inside a box) and Focus (blurs and dims everything outside a box). Pick from 8 preset colours, undo, and pinch to zoom.
-- **Copy and Save**: both keep full Retina resolution. For tall images, Copy also puts the PNG file on the clipboard, so chat apps attach the original file instead of shrinking it.
+- **Copy and Save**: both keep full Retina resolution. Copy also puts the PNG file on the clipboard, so chat apps attach the original file instead of shrinking it.
 
 ## Shortcuts
 

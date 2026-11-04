@@ -515,12 +515,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate, NSToolbarDeleg
         guard let data = canvas.png() else { return }
         let item = NSPasteboardItem()
         item.setData(data, forType: .png)
-        // Chat/doc apps shrink big pasted images (a full page becomes unreadable). With the PNG file on the
-        // clipboard too, most attach the original file instead. ponytail: 2000pt cutoff is a guess, tune if needed.
-        if canvas.bounds.height > 2000 {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
-            if (try? data.write(to: url)) != nil { item.setString(url.absoluteString, forType: .fileURL) }
-        }
+        // Chat/doc apps recompress and shrink pasted image data. With the PNG file on the clipboard too,
+        // most attach the original file instead, same quality as Save.
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(fileName)
+        if (try? data.write(to: url)) != nil { item.setString(url.absoluteString, forType: .fileURL) }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([item])
         window.close()   // copied: done with this shot, get out of the way (app stays in the menu bar)
